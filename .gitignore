@@ -1,0 +1,23 @@
+# images
+*.png
+*.jpg
+
+# models
+*.pt
+*.pth
+
+# results
+runs/
+saves/
+val_saves/
+imgs/
+heatmap/
+submission/
+gen_weights/
+gen_results/
+
+# cache
+__pycache__
+
+# build results
+target_models/DINO/dino_models/dino/ops/build/
