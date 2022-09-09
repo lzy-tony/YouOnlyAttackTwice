@@ -6,6 +6,7 @@ from PIL import Image
 import numpy as np
 import random
 import cv2
+import time
 
 import torch
 from torch import nn
@@ -18,7 +19,7 @@ from util.load_detector import load_yolo
 from util.dataloader import ImageLoader
 from util.loss import Targeted_loss, TV_loss, NPS
 from util.tensor2img import tensor2img
-from util.enviro import recal_patch_rgb
+from util.enviro import eot_ver2,Super_Yinjian_Augment
 
 
 def parse_opt():
@@ -26,7 +27,7 @@ def parse_opt():
 
     parser.add_argument("--alpha", type=float, default="1e-2", help="size of gradient update")
     parser.add_argument("--epochs", type=int, default=20000, help="number of epochs to attack")
-    parser.add_argument("--batch-size", type=int, default=24, help="batch size")
+    parser.add_argument("--batch-size", type=int, default=12, help="batch size")
     parser.add_argument("--device", type=str, default="cuda:0", help="device")
     parser.add_argument("--momentum_beta", type=float, default=0.75, help="momentum need an beta arg")
 
@@ -41,6 +42,7 @@ def train(opt):
     beta = opt.momentum_beta
     dataset = ImageLoader()
     dataloader = DataLoader(dataset, batch_size=opt.batch_size, shuffle=True)
+    aug = Super_Yinjian_Augment()
 
     # model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
     # model.eval().to(device)
@@ -50,8 +52,8 @@ def train(opt):
     tv_loss = TV_loss()
     nps_loss = NPS()
 
-    mu1 = 5e-6
-    mu2 = 5e-6
+    mu1 = 5e-4
+    mu2 = 5e-5
     
     # patch size
     patch_height = 1260
@@ -98,16 +100,26 @@ def train(opt):
 
                 ty, tx, tw, th = tyt[i].item(), txt[i].item(), twt[i].item(), tht[i].item()
                  
-                ux = int(round(dh + tx * r)) + random.randint(-5,5)
-                uy = int(round(dw + ty * r)) + random.randint(-5,5)
-                dx = int(round(dh + (tx + th) * r)) + random.randint(-5,5)
-                dy = int(round(dw + (ty + tw) * r)) + random.randint(-5,5)
+                ux = int(round(dh + tx * r)) + random.randint(-2,2)
+                uy = int(round(dw + ty * r)) + random.randint(-2,2)
+                dx = int(round(dh + (tx + th) * r)) + random.randint(-2,2)
+                dy = int(round(dw + (ty + tw) * r)) + random.randint(-2,2)
                 if (dx - ux <= 0) or (dy - uy <=0):
                     continue
 
+                # new_noise = torch.unsqueeze(noise, dim=0)
+                # new_mask = torch.unsqueeze(mask, dim=0)
                 im_mask = torch.ones((dx - ux, dy - uy)).to(device)
-                small_noise = F.interpolate(noise, (dx - ux, dy - uy))
-                small_mask = F.interpolate(mask, (dx - ux, dy - uy))
+                transform_kernel = nn.AdaptiveAvgPool2d((dx - ux, dy - uy))
+                # small_noise = F.interpolate(new_noise, (dx - ux, dy - uy),mode="bilinear")
+                # small_mask = F.interpolate(new_mask, (dx - ux, dy - uy))
+                # resizer = torchvision.transforms.Resize((dx - ux, dy - uy))
+                # small_noise = resizer(noise)
+                # small_mask = resizer(mask)
+                temp_noise = eot_ver2(im,noise)
+                small_noise = transform_kernel(temp_noise)
+                small_mask = transform_kernel(mask)
+
                 ori = im[..., ux:dx, uy:dy]
                 ori = ori.unsqueeze(dim=0)
                 patch = small_noise * small_mask + ori * (1 - small_mask)
@@ -117,7 +129,8 @@ def train(opt):
                 im_mask = F.pad(im_mask, p2d, "constant", 0)
 
                 adv_im = im * (1 - im_mask) + im_mask * pad_patch
-                outputs = yolo(adv_im)
+                auged_adv_im = aug(adv_im)
+                outputs = yolo(auged_adv_im)
                 lconf = yolo_loss(outputs)
                 tv = tv_loss(noise)
                 nps = nps_loss(noise)
@@ -135,18 +148,18 @@ def train(opt):
                 grad += grad2_
                                 
                 if batch % 10 == 0:
-                    tensor2img(adv_im, f"./saves/adv_im_{batch}_{i}.png")
+                    tensor2img(auged_adv_im, f"./saves/adv_im_{batch}_{i}.png")      
             
             mom_grad = beta * mom_grad + (1-beta) * grad.sign()
             noise = noise.detach() - opt.alpha * mom_grad
             noise = torch.clamp(noise, min=0, max=1)
-        print(total_loss/1037)
+        print(total_loss/1036)
 
         
-        print("-tot: ", total_loss / 1037)
-        print("-cls: ", total_loss_cls / 1037)
-        print("-tv: ", total_tv_loss / 1037)
-        print("-nps: ", total_nps_loss / 1037)
+        print("-tot: ", total_loss / 1036)
+        print("-cls: ", total_loss_cls / 1036)
+        print("-tv: ", total_tv_loss / 1036)
+        print("-nps: ", total_nps_loss / 1036)
         tensor2img(noise, f"./submission/pgd_new/pgd_new_epoch{epoch}.png")
         tensor2img(mask, f"./submission/pgd_new/mask.png")
 

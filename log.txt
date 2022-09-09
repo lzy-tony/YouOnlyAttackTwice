@@ -1,0 +1,14 @@
+cuda:0
+==================== evaluating epoch 0 ====================
+tensor([917.05780], device='cuda:0', grad_fn=<DivBackward0>)
+-tot:  tensor([917.05780], device='cuda:0', grad_fn=<DivBackward0>)
+-cls:  tensor([896.88342], device='cuda:0', grad_fn=<DivBackward0>)
+-tv:  tensor([0.86476], device='cuda:0', grad_fn=<DivBackward0>)
+-nps:  tensor([19.31067], device='cuda:0', grad_fn=<DivBackward0>)
+==================== evaluating epoch 1 ====================
+tensor([694.68176], device='cuda:0', grad_fn=<DivBackward0>)
+-tot:  tensor([694.68176], device='cuda:0', grad_fn=<DivBackward0>)
+-cls:  tensor([678.44037], device='cuda:0', grad_fn=<DivBackward0>)
+-tv:  tensor([1.87490], device='cuda:0', grad_fn=<DivBackward0>)
+-nps:  tensor([14.36734], device='cuda:0', grad_fn=<DivBackward0>)
+==================== evaluating epoch 2 ====================

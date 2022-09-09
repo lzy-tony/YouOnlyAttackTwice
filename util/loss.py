@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 import torch
 from torch import nn
@@ -124,8 +125,10 @@ class TORCH_VISION_LOSS:
 class Targeted_loss:
     def __init__(self, model, transfer_target=17):
         self.device = next(model.parameters()).device
-        self.transfer_target = torch.zeros(80, device=self.device)
-        self.transfer_target[transfer_target] = 1
+        # self.transfer_target = torch.zeros(80, device=self.device)
+        # self.transfer_target[transfer_target] = 1
+        self.transfer_target = transfer_target
+        self.BCEcls = nn.BCEWithLogitsLoss(reduction='sum')
     
     def __call__(self, p, targets=[2, 5, 7], conf_thres=0.001):
         lcls = torch.zeros(1, device=self.device)
@@ -134,10 +137,15 @@ class Targeted_loss:
             pi = pi.view(-1, pi.shape[-1])
             best_class = pi[...,5:].max(dim=1).values
             for w in targets:
-                m1 = (best_class==pi[...,5+w]).float()
-                m2 = (torch.sigmoid(pi[..., 4])>=conf_thres).float()
+                m1 = (best_class==pi[...,5+w])
+                m2 = (torch.sigmoid(pi[..., 4])>=conf_thres)
                 m = m1 * m2
-                lcls += (nn.BCELoss(torch.sigmoid(pi[...,5+w]), self.transfer_target) * m).sum()
+                if torch.max(m) < 1:
+                    continue
+                transfer_target = torch.zeros_like(pi[m,5:], dtype=torch.float16, device=self.device)
+                transfer_target[..., self.transfer_target] = 1
+                tmp = self.BCEcls(pi[m,5:], transfer_target)
+                lcls += tmp
         return lcls
 
 
@@ -155,15 +163,23 @@ class NPS:
         self.printability_array = self.get_printability_array(printability_file, patch_size)
 
     def __call__(self, patch):
-        color_dist = (patch - self.printability_array+0.000001)
-        color_dist = color_dist ** 2
-        color_dist = torch.sum(color_dist, 1)+0.000001
-        color_dist = torch.sqrt(color_dist)
-        # only work with the min distance
-        color_dist_prod = torch.min(color_dist, 0)[0] #test: change prod for min (find distance to closest color)
-        # calculate the nps by summing over all pixels
-        nps_score = torch.sum(color_dist_prod,0)
-        nps_score = torch.sum(nps_score,0)
+        patch = patch.transpose(0, 2).transpose(0, 1)
+        min_dist = torch.ones((patch.shape[0], patch.shape[1]), device="cuda")
+        for triplet_tensor in self.printability_array:
+            dist = (patch - triplet_tensor + 0.000001) ** 2
+            dist = torch.sqrt(torch.sum(dist, 2) + 0.000001)
+            min_dist = torch.min(dist, min_dist)
+        nps_score = min_dist.sum()
+        # color_dist = (patch - self.printability_array+0.000001)
+        # color_dist = color_dist ** 2
+        # color_dist = torch.sum(color_dist, 1)+0.000001
+        # color_dist = torch.sqrt(color_dist)
+        # # only work with the min distance
+        # color_dist_prod = torch.min(color_dist, 0)[0] #test: change prod for min (find distance to closest color)
+        # # calculate the nps by summing over all pixels
+        # # nps_score = torch.sum(color_dist_prod,0)
+        # # nps_score = torch.sum(nps_score,0)
+        # nps_score = color_dist_prod.sum()
         return nps_score
 
     def get_printability_array(self, printability_file, size):
@@ -175,15 +191,10 @@ class NPS:
                 printability_list.append(line.split(","))
 
         printability_array = []
-        for printability_triplet in printability_list:
-            printability_imgs = []
+        for i, printability_triplet in enumerate(printability_list):
             red, green, blue = printability_triplet
-            printability_imgs.append(np.full(size, red))
-            printability_imgs.append(np.full(size, green))
-            printability_imgs.append(np.full(size, blue))
-            printability_array.append(printability_imgs)
+            triplet_tensor = torch.zeros(3, device="cuda")
+            triplet_tensor[0], triplet_tensor[1], triplet_tensor[2] = float(red), float(green), float(blue)
+            printability_array.append(triplet_tensor)
 
-        printability_array = np.asarray(printability_array)
-        printability_array = np.float32(printability_array)
-        pa = torch.from_numpy(printability_array).cuda()
-        return pa
+        return printability_array
